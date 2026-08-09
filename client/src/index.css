@@ -1,0 +1,242 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  
+  --color-success: hsl(var(--success));
+  --color-success-foreground: hsl(var(--success-foreground));
+  --color-warning: hsl(var(--warning));
+  --color-warning-foreground: hsl(var(--warning-foreground));
+  
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+  
+  --animate-accordion-down: accordion-down 0.2s ease-out;
+  --animate-accordion-up: accordion-up 0.2s ease-out;
+  
+  @keyframes accordion-down {
+    from { height: 0; }
+    to { height: var(--radix-accordion-content-height); }
+  }
+  @keyframes accordion-up {
+    from { height: var(--radix-accordion-content-height); }
+    to { height: 0; }
+  }
+}
+
+@layer base {
+  :root {
+    /* Trading Suite Color Palette - Refined Professional Colors */
+    --background: 220 25% 5%;
+    --foreground: 0 0% 100%;
+    
+    --card: 220 30% 14% / 0.55;
+    --card-foreground: 0 0% 100%;
+    
+    --popover: 220 30% 16% / 0.85;
+    --popover-foreground: 0 0% 100%;
+    
+    --primary: 210 85% 58%;
+    --primary-foreground: 0 0% 100%;
+    
+    --secondary: 195 80% 50%;
+    --secondary-foreground: 0 0% 100%;
+    
+    --muted: 220 20% 18%;
+    --muted-foreground: 215 20% 60%;
+    
+    --accent: 260 55% 62%;
+    --accent-foreground: 0 0% 100%;
+    
+    --destructive: 4 72% 60%;
+    --destructive-foreground: 0 0% 100%;
+    
+    --success: 152 65% 50%;
+    --success-foreground: 0 0% 100%;
+    
+    --warning: 45 90% 55%;
+    --warning-foreground: 220 25% 10%;
+    
+    --border: 220 20% 22%;
+    --input: 220 20% 18%;
+    --ring: 210 85% 58%;
+    
+    --radius: 0.75rem;
+    
+    /* Trading Specific Colors */
+    --trading-green: 152 65% 50%;
+    --trading-red: 4 72% 60%;
+    --trading-cyan: 187 85% 46%;
+    --trading-blue: 210 85% 58%;
+    --trading-yellow: 45 90% 55%;
+    --trading-orange: 28 85% 55%;
+    --trading-purple: 275 55% 60%;
+    
+    /* Gradient Tokens */
+    --gradient-primary: linear-gradient(135deg, hsl(210 85% 58%), hsl(195 80% 50%));
+    --gradient-success: linear-gradient(145deg, hsl(152 65% 50%), hsl(152 65% 56%));
+    --gradient-danger: linear-gradient(145deg, hsl(4 72% 60%), hsl(4 72% 50%));
+    --gradient-warning: linear-gradient(145deg, hsl(45 90% 55%), hsl(38 90% 55%));
+    --gradient-blue: linear-gradient(145deg, hsl(210 85% 58%), hsl(210 85% 50%));
+    --gradient-panel: linear-gradient(180deg, hsl(220 30% 14% / 0.7), hsl(220 30% 8% / 0.7));
+    
+    /* Shadows */
+    --shadow-glow-green: 0 0 20px hsla(152, 65%, 50%, 0.3);
+    --shadow-glow-red: 0 0 20px hsla(4, 72%, 60%, 0.3);
+    --shadow-glow-blue: 0 0 20px hsla(210, 85%, 58%, 0.3);
+    --shadow-glow-yellow: 0 0 20px hsla(45, 90%, 55%, 0.3);
+    --shadow-card: 0 8px 32px hsla(0, 0%, 0%, 0.35);
+    
+    /* Panel Widths */
+    --panel-left: 65%;
+    --panel-right: 35%;
+    --panel-right-min: 380px;
+    --panel-right-max: 450px;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background-image:
+      radial-gradient(1100px 600px at 12% -10%, hsla(210, 90%, 55%, 0.14), transparent 60%),
+      radial-gradient(1000px 520px at 100% 5%, hsla(275, 60%, 55%, 0.12), transparent 55%),
+      radial-gradient(900px 500px at 50% 115%, hsla(187, 100%, 45%, 0.10), transparent 60%);
+    background-attachment: fixed;
+  }
+  
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  
+  ::-webkit-scrollbar-track {
+    background: hsl(var(--muted) / 0.3);
+    border-radius: 3px;
+  }
+  
+  ::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, hsl(var(--primary)), hsl(var(--secondary)));
+    border-radius: 3px;
+  }
+}
+
+@layer utilities {
+  .font-mono {
+    font-family: 'JetBrains Mono', monospace;
+  }
+  
+  /* Panel separator */
+  .panel-separator {
+    width: 1px;
+    background: linear-gradient(180deg, transparent 0%, hsl(var(--border)) 20%, hsl(var(--primary) / 0.3) 50%, hsl(var(--border)) 80%, transparent 100%);
+  }
+  
+  /* Gradient backgrounds */
+  .bg-gradient-primary {
+    background: var(--gradient-primary);
+  }
+  
+  .bg-gradient-success {
+    background: var(--gradient-success);
+  }
+  
+  .bg-gradient-danger {
+    background: var(--gradient-danger);
+  }
+  
+  .bg-gradient-panel {
+    background: var(--gradient-panel);
+  }
+  
+  /* Glow effects */
+  .glow-green {
+    box-shadow: var(--shadow-glow-green);
+  }
+  
+  .glow-red {
+    box-shadow: var(--shadow-glow-red);
+  }
+  
+  .glow-blue {
+    box-shadow: var(--shadow-glow-blue);
+  }
+  
+  .glow-yellow {
+    box-shadow: var(--shadow-glow-yellow);
+  }
+  
+  /* Trading status indicators */
+  .status-pulse {
+    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+  
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+  
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+  
+  .animate-spin-slow {
+    animation: spin 2s linear infinite;
+  }
+  
+  /* Digit cursor animation */
+  @keyframes cursor-pulse {
+    0% { 
+      transform: translateX(-50%) scale(1);
+      filter: drop-shadow(0 0 8px hsl(var(--destructive)));
+    }
+    100% { 
+      transform: translateX(-50%) scale(1.1);
+      filter: drop-shadow(0 0 15px hsl(var(--destructive)));
+    }
+  }
+  
+  .cursor-active {
+    animation: cursor-pulse 0.8s infinite alternate;
+  }
+  
+  /* Fade in animation */
+  @keyframes fade-in {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  
+  .animate-fade-in {
+    animation: fade-in 0.3s ease-out;
+  }
+  
+  /* Bar fill transition */
+  .bar-transition {
+    transition: height 0.6s ease;
+  }
+}

@@ -1,0 +1,81 @@
+You are fixing an existing React + TypeScript trading bot that uses WebSocket tick data.
+
+DO NOT GUESS. DO NOT SIMPLIFY. MATCH THE FOLLOWING 3-STATE CONTRACT FLOW EXACTLY.
+
+CONTRACT LIFECYCLE (ONLY 3 STATES)
+The bot must use ONLY these states, in this order:
+
+1) BUYING
+   - Buy request sent
+   - Awaiting buy confirmation from WebSocket
+
+2) SETTLING
+   - Contract is active and running
+   - Waiting for expiration / settlement ticks
+
+3) READY
+   - Contract fully settled
+   - Final result (win or loss) confirmed
+
+NO "PROPOSING" STATE MUST EXIST ANYWHERE IN CODE OR UI.
+
+------------------------------------------------
+
+1) PROGRESS BAR SYNC (CRITICAL)
+- The progress bar must reflect ONLY these 3 states:
+  BUYING → SETTLING → READY
+- Progress must change ONLY when the real contract state changes.
+- No fake animation, no timers, no assumptions.
+
+By the time the progress bar reaches READY:
+- The trade result MUST already be known
+- The trade log MUST already be updated
+- Martingale decision MUST already be resolved
+
+------------------------------------------------
+
+2) TRADE LOG SYNCHRONIZATION
+- Trade history entries must be created ONLY at READY
+- Each trade log entry must include:
+  - Contract ID
+  - Entry price
+  - Exit price
+  - Win or loss
+  - Timestamp
+- The log must NEVER update before READY
+
+------------------------------------------------
+
+3) MARTINGALE LOGIC (STRICT)
+- Martingale must trigger ONLY after a CONFIRMED LOSS
+- Loss confirmation = state is READY AND result is loss
+- Martingale must NEVER trigger during:
+  - BUYING
+  - SETTLING
+- Martingale must reset immediately after any win
+
+------------------------------------------------
+
+4) RUN-ON-EVERY-TICK (NO MISSED TICKS)
+- Tick processing MUST happen directly inside WebSocket `onmessage`
+- Do NOT rely on React state or useEffect to run logic
+- Use refs for high-frequency values
+- React state updates are UI-only
+
+------------------------------------------------
+
+5) PERFORMANCE / LAG FIXES
+- Eliminate progress bar lag
+- Avoid unnecessary re-renders
+- Keep trade state, progress bar, martingale, and trade log in perfect lockstep
+
+------------------------------------------------
+
+6) DO NOT:
+- Add timers, delays, or polling
+- Guess contract duration
+- Add back "Proposing" in any form
+- Update UI ahead of real contract state
+
+ONLY modify the necessary files.
+Briefly explain how the 3-state lifecycle, progress bar sync, martingale timing, and trade log consistency were fixed.
