@@ -35,12 +35,13 @@ export function useTradingBot(config: UseTradingBotConfig = {}) {
   const reconnectTimeoutRef = useRef<number | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const maxReconnectAttempts = 5;
-  const reconnectDelayRef = useRef(1000);
+  const reconnectDelayRef = useRef(300);
   const authTokenRef = useRef<string>('');
   const appIdRef = useRef<string>('');
   const accountIdRef = useRef<string>('');
   const currencyRef = useRef<string>('');
   const keepAliveRef = useRef<number | null>(null);
+  const consecutiveErrorsRef = useRef(0); // Prevents a tight error-retry loop from freezing the page
 
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
@@ -243,8 +244,10 @@ export function useTradingBot(config: UseTradingBotConfig = {}) {
     const currentSettings = settingsRef.current;
     const currentSession = sessionRef.current;
 
-    // Ensure stake is valid (use 0.35 as minimum if not set)
-    const stakeToUse = currentSession.currentStake || currentSettings.stake || 0.35;
+    // Ensure stake is valid (use 0.35 as minimum if not set).
+    // Round to 2 decimals - Deriv rejects amounts with 3+ decimals (e.g. a
+    // fractional martingale like 1.5 produces 1.125 which is an invalid stake).
+    const stakeToUse = Math.round(((currentSession.currentStake || currentSettings.stake || 0.35)) * 100) / 100;
 
     if (balanceRef.current < stakeToUse) {
       console.error('[BOT] Insufficient balance');
@@ -315,7 +318,15 @@ export function useTradingBot(config: UseTradingBotConfig = {}) {
       }
     }, 20000);
 
-    send(proposal);
+    if (!send(proposal)) {
+      console.error('[BOT] Failed to send proposal - connection lost');
+      orderInFlightRef.current = false;
+      if (tradeTimeoutIdRef.current) {
+        clearSafeTimeout(tradeTimeoutIdRef.current);
+        tradeTimeoutIdRef.current = null;
+      }
+      return;
+    }
   }, [send, hardStop, getNextDirection, safeSetTimeout, clearSafeTimeout]);
 
   const placeTradeRef = useRef(placeTrade);
@@ -335,16 +346,19 @@ export function useTradingBot(config: UseTradingBotConfig = {}) {
     }
 
     const delay = executionSpeedRef.current;
-    console.log('[BOT] Scheduling next trade in', delay, 'ms');
+    // After an error, force a short breather so a rejecting server can't
+    // trigger a hot loop (each attempt is a real WS round-trip).
+    const effectiveDelay = consecutiveErrorsRef.current > 0 ? Math.max(delay, 1000) : delay;
+    console.log('[BOT] Scheduling next trade in', effectiveDelay, 'ms');
 
-    if (delay === 0) {
+    if (effectiveDelay === 0) {
       // Direct execution for 0ms delay to satisfy "No batching" and "process logic immediately"
       // Check state again just in case
       if (!stopRequestedRef.current && botStateRef.current === 'RUNNING') {
         placeTradeRef.current();
       }
     } else {
-      safeSetTimeout(() => placeTradeRef.current(), delay);
+      safeSetTimeout(() => placeTradeRef.current(), effectiveDelay);
     }
   }, [safeSetTimeout]);
 
@@ -363,6 +377,15 @@ export function useTradingBot(config: UseTradingBotConfig = {}) {
     if (data.error) {
       console.error('[BOT] API Error:', data.error);
       orderInFlightRef.current = false;
+
+      // Rapid-error guard: if the server keeps rejecting instantly, the delay-0
+      // retry loop would spin thousands of times and freeze the page.
+      consecutiveErrorsRef.current++;
+      if (consecutiveErrorsRef.current >= 5) {
+        console.error('[BOT] Too many consecutive errors - stopping bot to prevent a crash loop');
+        hardStop();
+        return;
+      }
 
       if (botStateRef.current === 'RUNNING' && !stopRequestedRef.current) {
         scheduleNextTradeRef.current();
@@ -447,8 +470,12 @@ export function useTradingBot(config: UseTradingBotConfig = {}) {
         break;
 
       case 'buy':
+        consecutiveErrorsRef.current = 0; // A successful buy breaks the error streak
         const buyData = data.buy as Record<string, unknown>;
         currentContractRef.current = buyData?.contract_id as string;
+        // Stop any previous contract stream FIRST so stale messages from a
+        // settled contract can never trigger duplicate settlements.
+        send({ forget_all: 'proposal_open_contract' });
         send({
           proposal_open_contract: 1,
           contract_id: buyData?.contract_id,
@@ -458,7 +485,23 @@ export function useTradingBot(config: UseTradingBotConfig = {}) {
         break;
 
       case 'proposal_open_contract':
+        // CRITICAL: Only process stream messages while a trade is actually in
+        // flight. After settlement orderInFlight is released, so any lingering
+        // message from the (still-subscribed) old contract is ignored - this
+        // prevents duplicate settlements, phantom trades and trade spam.
+        if (!orderInFlightRef.current) {
+          return;
+        }
+
         const poc = data.proposal_open_contract as Record<string, unknown>;
+
+        // Second layer: if we have an active contract, only accept its own
+        // stream messages (a lingering message from the previous contract
+        // arriving during this trade's flight must be ignored).
+        const streamContractId = poc?.contract_id != null ? String(poc.contract_id) : '';
+        if (currentContractRef.current && streamContractId && streamContractId !== String(currentContractRef.current)) {
+          return;
+        }
 
         // Update Tick Progress - IMMEDIATE sync
         // Use tick_stream length if available, otherwise fallback
@@ -470,13 +513,17 @@ export function useTradingBot(config: UseTradingBotConfig = {}) {
         config.onTick?.(currentTick, totalTicks);
 
         // Update trade entry immediately for real-time sync
+        const stream = (poc?.tick_stream as Array<Record<string, unknown>>) || [];
+        const firstTick = stream[0];
+        const lastTick = stream[stream.length - 1];
+
         if (!currentTradeRef.current) {
           currentTradeRef.current = {
             id: Date.now(),
             type: poc?.contract_type as string,
-            stake: poc?.buy_price as number,
-            entry: String(poc?.entry_tick || '—'),
-            exit: '—',
+            stake: parseFloat(String(poc?.buy_price)) || 0,
+            entry: String(poc?.entry_tick ?? firstTick?.tick ?? '—'),
+            exit: String(poc?.exit_tick ?? lastTick?.tick ?? '—'),
             profit: 0,
             status: 'Open',
             timestamp: new Date(),
@@ -490,17 +537,25 @@ export function useTradingBot(config: UseTradingBotConfig = {}) {
             return prev;
           });
         } else {
-          // Update existing trade immediately
-          currentTradeRef.current.entry = String(poc?.entry_tick || currentTradeRef.current.entry);
-          currentTradeRef.current.exit = String(poc?.exit_tick || currentTradeRef.current.exit);
-          currentTradeRef.current.profit = (poc?.profit as number) || currentTradeRef.current.profit;
+          // Update existing trade immediately - only re-render when values change
+          const nextEntry = String(poc?.entry_tick ?? firstTick?.tick ?? currentTradeRef.current.entry);
+          const nextExit = String(poc?.exit_tick ?? lastTick?.tick ?? currentTradeRef.current.exit);
+          const nextProfit = parseFloat(String(poc?.profit)) || currentTradeRef.current.profit;
 
-          // Update trade in list immediately for real-time sync
-          setTrades(prev => prev.map(t =>
-            t.id === currentTradeRef.current?.id
-              ? { ...t, ...currentTradeRef.current } as Trade
-              : t
-          ));
+          if (nextEntry !== currentTradeRef.current.entry ||
+              nextExit !== currentTradeRef.current.exit ||
+              nextProfit !== currentTradeRef.current.profit) {
+            currentTradeRef.current.entry = nextEntry;
+            currentTradeRef.current.exit = nextExit;
+            currentTradeRef.current.profit = nextProfit;
+
+            // Update trade in list immediately for real-time sync
+            setTrades(prev => prev.map(t =>
+              t.id === currentTradeRef.current?.id
+                ? { ...t, ...currentTradeRef.current } as Trade
+                : t
+            ));
+          }
         }
 
         if (poc?.is_sold || poc?.status === 'sold') {
@@ -527,7 +582,7 @@ export function useTradingBot(config: UseTradingBotConfig = {}) {
           if (isWin) {
             // WIN: Reset to initial stake for next trade
             updatedSession.consecutiveLosses = 0;
-            updatedSession.currentStake = currentSettings.stake || 0.35; // Reset to initial stake
+            updatedSession.currentStake = Math.round(((currentSettings.stake || 0.35)) * 100) / 100; // Reset to initial stake
 
             // Horizontal strategy behaviour:
             // Example: O3,U7
@@ -539,11 +594,14 @@ export function useTradingBot(config: UseTradingBotConfig = {}) {
               updatedSession.horizontal.currentIndex = 0;
             }
           } else {
-            // LOSS: Multiply stake by multiplier for next trade
+            // LOSS: Multiply stake by the configured multiplier for next trade.
+            // 0 (empty input) = NO martingale, stake stays the same.
+            // Round to 2 decimals so fractional martingales (e.g. 1.5 -> 1.125)
+            // never produce an invalid stake amount that Deriv rejects.
             updatedSession.consecutiveLosses++;
             updatedSession.totalLosses++;
-            // Apply multiplier: 0.35 -> 0.70 -> 1.40 -> 2.80, etc.
-            updatedSession.currentStake = updatedSession.currentStake * (currentSettings.martingale || 2);
+            const multiplier = currentSettings.martingale && currentSettings.martingale > 0 ? currentSettings.martingale : 1;
+            updatedSession.currentStake = Math.round(updatedSession.currentStake * multiplier * 100) / 100;
 
             // Horizontal strategy: move to next prediction as recovery step
             // For O3,U7 this means: O3 (loss) -> U7 (recovery)
@@ -637,7 +695,7 @@ export function useTradingBot(config: UseTradingBotConfig = {}) {
     if (!authTokenRef.current || reconnectAttemptsRef.current >= maxReconnectAttempts) {
       console.log('[BOT] Max reconnect attempts reached or no token');
       reconnectAttemptsRef.current = 0;
-      reconnectDelayRef.current = 1000;
+      reconnectDelayRef.current = 300;
       return;
     }
 
@@ -651,7 +709,7 @@ export function useTradingBot(config: UseTradingBotConfig = {}) {
     }, reconnectDelayRef.current);
 
     // Exponential backoff
-    reconnectDelayRef.current = Math.min(reconnectDelayRef.current * 2, 10000);
+    reconnectDelayRef.current = Math.min(reconnectDelayRef.current * 2, 4000);
   }, []);
 
   const connect = useCallback(async (token: string, appId: string) => {
@@ -667,7 +725,7 @@ export function useTradingBot(config: UseTradingBotConfig = {}) {
     authTokenRef.current = token;
     appIdRef.current = appId;
     reconnectAttemptsRef.current = 0;
-    reconnectDelayRef.current = 1000;
+    reconnectDelayRef.current = 300;
 
     setIsConnecting(true);
 
@@ -719,7 +777,8 @@ export function useTradingBot(config: UseTradingBotConfig = {}) {
         setIsConnecting(false);
         setIsAuthorized(true);
         reconnectAttemptsRef.current = 0;
-        reconnectDelayRef.current = 1000;
+        reconnectDelayRef.current = 300;
+        consecutiveErrorsRef.current = 0;
 
         // Keep the connection alive - Deriv drops idle connections without a periodic ping
         if (keepAliveRef.current) {
@@ -832,6 +891,7 @@ export function useTradingBot(config: UseTradingBotConfig = {}) {
     console.log('[BOT] Starting...');
     stopRequestedRef.current = false;
     orderInFlightRef.current = false;
+    consecutiveErrorsRef.current = 0;
     botStateRef.current = 'RUNNING';
     setBotState('RUNNING');
     setIsRunning(true);
@@ -839,7 +899,7 @@ export function useTradingBot(config: UseTradingBotConfig = {}) {
     setTradingStep('idle');
 
     // Initialize session with correct starting stake from settings
-    const initialStake = settingsRef.current.stake || 0.35;
+    const initialStake = Math.round(((settingsRef.current.stake || 0.35)) * 100) / 100;
     setSession(prev => ({
       ...prev,
       currentStake: initialStake,
@@ -893,7 +953,7 @@ export function useTradingBot(config: UseTradingBotConfig = {}) {
       sessionPnL: 0,
       consecutiveLosses: 0,
       totalLosses: 0,
-      currentStake: settings.stake || 0.35,
+      currentStake: Math.round(((settings.stake || 0.35)) * 100) / 100,
       horizontal: { sequence: [], currentIndex: 0 },
       alternate: { nextDirection: 0 },
     }));

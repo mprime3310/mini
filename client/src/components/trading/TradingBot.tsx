@@ -57,9 +57,9 @@ export function TradingBot() {
   // No useEffect needed - sounds handled via onSoundPlay callback
 
   const totalRuns = trades.length;
-  const wins = trades.filter(t => t.profit > 0).length;
-  const losses = trades.filter(t => t.profit < 0).length;
-  const totalPL = trades.reduce((sum, t) => sum + t.profit, 0);
+  const wins = trades.filter(t => Number(t.profit) > 0).length;
+  const losses = trades.filter(t => Number(t.profit) < 0).length;
+  const totalPL = trades.reduce((sum, t) => sum + (Number(t.profit) || 0), 0);
 
   const handleConnect = () => {
     if (token.trim() && appId.trim()) {
@@ -286,7 +286,7 @@ export function TradingBot() {
               value={settings.martingale || ''}
               placeholder="Martingale"
               title="Martingale"
-              onChange={(e) => updateSettings({ martingale: parseFloat(e.target.value) || 2 })}
+              onChange={(e) => updateSettings({ martingale: e.target.value === '' ? 0 : parseFloat(e.target.value) || 0 })}
               disabled={isRunning && !isPaused}
               className="h-6 text-xs"
             />
@@ -297,7 +297,7 @@ export function TradingBot() {
               value={settings.ticks || ''}
               placeholder="Ticks"
               title="Ticks"
-              onChange={(e) => updateSettings({ ticks: parseInt(e.target.value) || 1 })}
+              onChange={(e) => updateSettings({ ticks: e.target.value === '' ? 0 : parseInt(e.target.value) || 0 })}
               disabled={isRunning && !isPaused}
               className="h-6 text-xs"
             />

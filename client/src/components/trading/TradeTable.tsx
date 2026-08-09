@@ -53,12 +53,12 @@ export function TradeTable({ trades, onClear }: TradeTableProps) {
                   <td className="px-2 py-2 font-medium">{trade.type}</td>
                   <td className="px-2 py-2 font-mono">{trade.entry}</td>
                   <td className="px-2 py-2 font-mono">{trade.exit}</td>
-                  <td className="px-2 py-2 font-mono">${trade.stake.toFixed(2)}</td>
+                  <td className="px-2 py-2 font-mono">${Number(trade.stake).toFixed(2)}</td>
                   <td className={cn(
                     "px-2 py-2 font-mono font-bold",
-                    trade.profit >= 0 ? 'text-success' : 'text-destructive'
+                    Number(trade.profit) >= 0 ? 'text-success' : 'text-destructive'
                   )}>
-                    {trade.profit >= 0 ? '+' : ''}${trade.profit.toFixed(2)}
+                    {Number(trade.profit) >= 0 ? '+' : ''}${Number(trade.profit).toFixed(2)}
                   </td>
                   <td className="px-2 py-2">
                     <span className={cn(
