@@ -18,6 +18,7 @@ export function useTradingBot(config: UseTradingBotConfig = {}) {
   const reqIdRef = useRef(1);
   const currentProposalRef = useRef<string | null>(null);
   const currentContractRef = useRef<string | null>(null);
+  const lastSettledContractIdRef = useRef<string | null>(null); // Duplicate-result protection: id of the last processed settlement
   const currentTradeRef = useRef<Partial<Trade> | null>(null);
   const currentContractTypeRef = useRef<string>('');
 
@@ -59,8 +60,6 @@ export function useTradingBot(config: UseTradingBotConfig = {}) {
 
   const [session, setSession] = useState<TradingSession>({
     sessionPnL: 0,
-    consecutiveLosses: 0,
-    totalLosses: 0,
     currentStake: 0,
     strategy: 'manual',
     horizontal: { sequence: [], currentIndex: 0 },
@@ -79,8 +78,6 @@ export function useTradingBot(config: UseTradingBotConfig = {}) {
     martingale: 0,
     takeProfit: 0,
     stopLoss: 0,
-    maxConsecutiveLosses: 0,
-    maxTotalLosses: 0,
     strategy: 'manual',
     predictionSequence: 'O4,U6,O3,U7',
   });
@@ -156,8 +153,17 @@ export function useTradingBot(config: UseTradingBotConfig = {}) {
       tradeTimeoutIdRef.current = null;
     }
 
-    // Allow any in-flight order to complete but block new trades
+    // Block new trades: the stop flag STAYS set until the user explicitly
+    // clicks Start again (startBot resets it). Otherwise a late proposal/buy
+    // response arriving after the 150ms STOPPED->IDLE transition would slip
+    // through and make the bot "take one last trade".
     orderInFlightRef.current = false;
+
+    // Drop any pending "Open" trade entry created while a proposal/buy was in
+    // flight - after a stop, no new trade may appear in the table.
+    currentTradeRef.current = null;
+    currentContractRef.current = null;
+    setTrades(prev => prev.filter(t => t.status !== 'Open'));
 
     // Transition to STOPPED after brief delay
     window.setTimeout(() => {
@@ -168,11 +174,10 @@ export function useTradingBot(config: UseTradingBotConfig = {}) {
       setTradingStep('idle');
       console.log('[BOT] State: STOPPED');
 
-      // Reset after stopped
+      // Reset after stopped (NOTE: stopRequestedRef stays true until startBot)
       window.setTimeout(() => {
         botStateRef.current = 'IDLE';
         setBotState('IDLE');
-        stopRequestedRef.current = false;
       }, 100);
     }, 50);
   }, [clearAllPendingTimers]);
@@ -470,6 +475,17 @@ export function useTradingBot(config: UseTradingBotConfig = {}) {
         break;
 
       case 'buy':
+        // Stop requested / bot not running: never accept the buy so the bot
+        // cannot take a final trade after the user pressed Stop. (During the
+        // brief STOPPING/STOPPED window this is also caught earlier; this
+        // guard covers a late buy arriving after the bot went back to IDLE.)
+        if (stopRequestedRef.current || botStateRef.current !== 'RUNNING') {
+          console.log('[BOT] Buy ignored - bot is stopping/stopped');
+          orderInFlightRef.current = false;
+          currentTradeRef.current = null;
+          currentContractRef.current = null;
+          return;
+        }
         consecutiveErrorsRef.current = 0; // A successful buy breaks the error streak
         const buyData = data.buy as Record<string, unknown>;
         currentContractRef.current = buyData?.contract_id as string;
@@ -500,6 +516,18 @@ export function useTradingBot(config: UseTradingBotConfig = {}) {
         // arriving during this trade's flight must be ignored).
         const streamContractId = poc?.contract_id != null ? String(poc.contract_id) : '';
         if (currentContractRef.current && streamContractId && streamContractId !== String(currentContractRef.current)) {
+          return;
+        }
+
+        // Third layer: duplicate-result protection by contract id.
+        // A contract that has already been settled must never be settled again,
+        // even if a delayed duplicate is_sold message arrives during the NEXT
+        // trade's flight (when currentContractRef is null and orderInFlight is
+        // true again). Without this, one loss could double-count the result
+        // and corrupt the session PnL.
+        if ((poc?.is_sold || poc?.status === 'sold') &&
+            streamContractId &&
+            streamContractId === lastSettledContractIdRef.current) {
           return;
         }
 
@@ -561,6 +589,12 @@ export function useTradingBot(config: UseTradingBotConfig = {}) {
         if (poc?.is_sold || poc?.status === 'sold') {
           // STEP 3: READY (Contract Settled)
 
+          // Remember this contract id so any duplicate is_sold message for the
+          // same contract is ignored (see duplicate-result protection above).
+          if (streamContractId) {
+            lastSettledContractIdRef.current = streamContractId;
+          }
+
           // Clear heartbeat timeout permanently for this trade
           if (tradeTimeoutIdRef.current) {
             clearSafeTimeout(tradeTimeoutIdRef.current);
@@ -581,7 +615,6 @@ export function useTradingBot(config: UseTradingBotConfig = {}) {
           // MARTINGALE + HORIZONTAL SEQUENCE LOGIC
           if (isWin) {
             // WIN: Reset to initial stake for next trade
-            updatedSession.consecutiveLosses = 0;
             updatedSession.currentStake = Math.round(((currentSettings.stake || 0.35)) * 100) / 100; // Reset to initial stake
 
             // Horizontal strategy behaviour:
@@ -598,8 +631,6 @@ export function useTradingBot(config: UseTradingBotConfig = {}) {
             // 0 (empty input) = NO martingale, stake stays the same.
             // Round to 2 decimals so fractional martingales (e.g. 1.5 -> 1.125)
             // never produce an invalid stake amount that Deriv rejects.
-            updatedSession.consecutiveLosses++;
-            updatedSession.totalLosses++;
             const multiplier = currentSettings.martingale && currentSettings.martingale > 0 ? currentSettings.martingale : 1;
             updatedSession.currentStake = Math.round(updatedSession.currentStake * multiplier * 100) / 100;
 
@@ -629,16 +660,6 @@ export function useTradingBot(config: UseTradingBotConfig = {}) {
             shouldStop = true;
             stopReason = 'Stop loss reached';
             showLossNotification('stop_loss', Math.abs(updatedSession.sessionPnL));
-          }
-          if (currentSettings.maxConsecutiveLosses > 0 && !isWin && updatedSession.consecutiveLosses >= currentSettings.maxConsecutiveLosses) {
-            shouldStop = true;
-            stopReason = 'Max consecutive losses reached';
-            showLossNotification('consecutive_losses', updatedSession.consecutiveLosses);
-          }
-          if (currentSettings.maxTotalLosses > 0 && !isWin && updatedSession.totalLosses >= currentSettings.maxTotalLosses) {
-            shouldStop = true;
-            stopReason = 'Max total losses reached';
-            showLossNotification('total_losses', updatedSession.totalLosses);
           }
 
           // Update tick progress to 100% immediately
@@ -681,8 +702,10 @@ export function useTradingBot(config: UseTradingBotConfig = {}) {
           // Update balance
           send({ balance: 1 });
 
-          // Schedule next trade if still running - IMMEDIATE if speed is 0
-          if (botStateRef.current === 'RUNNING' && !stopRequestedRef.current) {
+          // Schedule next trade if still running and not paused - IMMEDIATE if
+          // speed is 0. Pause never interrupts an unsettled contract: it is
+          // allowed to settle normally and only HOLDS before the next trade.
+          if (botStateRef.current === 'RUNNING' && !stopRequestedRef.current && !isPausedRef.current) {
             scheduleNextTradeRef.current();
           }
         }
@@ -904,8 +927,6 @@ export function useTradingBot(config: UseTradingBotConfig = {}) {
       ...prev,
       currentStake: initialStake,
       sessionPnL: 0,
-      consecutiveLosses: 0,
-      totalLosses: 0,
     }));
     sessionRef.current.currentStake = initialStake;
 
@@ -951,8 +972,6 @@ export function useTradingBot(config: UseTradingBotConfig = {}) {
     setSession(prev => ({
       ...prev,
       sessionPnL: 0,
-      consecutiveLosses: 0,
-      totalLosses: 0,
       currentStake: Math.round(((settings.stake || 0.35)) * 100) / 100,
       horizontal: { sequence: [], currentIndex: 0 },
       alternate: { nextDirection: 0 },

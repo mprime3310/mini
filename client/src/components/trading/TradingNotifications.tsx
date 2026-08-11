@@ -45,7 +45,7 @@ export const showTakeProfitNotification = (
 
 // Function 2: showLossNotification(type, amount)
 export const showLossNotification = (
-  type: 'stop_loss' | 'consecutive_losses' | 'total_losses',
+  type: 'stop_loss',
   amount: number
 ) => {
   // ⚡ Shows centered simple notification IMMEDIATELY
@@ -59,14 +59,6 @@ export const showLossNotification = (
     case 'stop_loss':
       title = 'Stop Loss Triggered';
       message = `Your session has reached the stop loss limit of $${amount.toFixed(2)}. Trading has been stopped to protect your account.`;
-      break;
-    case 'consecutive_losses':
-      title = 'Max Consecutive Losses';
-      message = `You have reached the maximum consecutive losses limit (${amount}). Trading has been stopped to prevent further losses.`;
-      break;
-    case 'total_losses':
-      title = 'Max Total Losses';
-      message = `You have reached the maximum total losses limit (${amount}). Trading has been stopped.`;
       break;
   }
 

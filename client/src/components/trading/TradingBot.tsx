@@ -303,7 +303,7 @@ export function TradingBot() {
             />
           </div>
 
-          {/* ROW 3: Stop Loss | Max Consecutive Losses | Max Total Losses */}
+          {/* ROW 3: Stop Loss */}
           <div className="grid grid-cols-3 gap-1.5">
             <Input
               type="number"
@@ -311,26 +311,6 @@ export function TradingBot() {
               placeholder="Stop Loss"
               title="Stop Loss ($)"
               onChange={(e) => updateSettings({ stopLoss: parseFloat(e.target.value) || 0 })}
-              disabled={isRunning && !isPaused}
-              className="h-6 text-xs"
-            />
-            <Input
-              type="number"
-              min={0}
-              value={settings.maxConsecutiveLosses || ''}
-              placeholder="Max Con"
-              title="Max Consecutive Losses"
-              onChange={(e) => updateSettings({ maxConsecutiveLosses: parseInt(e.target.value) || 0 })}
-              disabled={isRunning && !isPaused}
-              className="h-6 text-xs"
-            />
-            <Input
-              type="number"
-              min={0}
-              value={settings.maxTotalLosses || ''}
-              placeholder="Max Loss"
-              title="Max Total Losses"
-              onChange={(e) => updateSettings({ maxTotalLosses: parseInt(e.target.value) || 0 })}
               disabled={isRunning && !isPaused}
               className="h-6 text-xs"
             />

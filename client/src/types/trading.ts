@@ -52,8 +52,6 @@ export interface Trade {
 
 export interface TradingSession {
   sessionPnL: number;
-  consecutiveLosses: number;
-  totalLosses: number;
   currentStake: number;
   strategy: 'manual' | 'horizontal' | 'alternate';
   horizontal: {
@@ -75,8 +73,6 @@ export interface BotSettings {
   martingale: number;
   takeProfit: number;
   stopLoss: number;
-  maxConsecutiveLosses: number;
-  maxTotalLosses: number;
   strategy: 'manual' | 'horizontal' | 'alternate';
   predictionSequence: string;
 }
